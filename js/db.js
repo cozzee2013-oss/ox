@@ -1,7 +1,7 @@
 // Firebase 실시간 DB 연결과 공용 함수
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import { getDatabase, ref, set, update, get, remove, onValue, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-database.js";
-import { firebaseConfig } from "./config.js";
+import { firebaseConfig } from "./config.js?v=firebase-connected";
 
 export const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
