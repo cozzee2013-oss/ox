@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>퀴즈 플레이 | 함께 즐기는 실시간 OX 퀴즈</title>
+  <link rel="stylesheet" href="style.css?v=20261104-contrast">
+
+  <meta name="description" content="함께 푸는 실시간 OX·객관식 퀴즈. 직접 문제를 만들고 친구들과 즐겨요.">
+  <meta name="theme-color" content="#251452">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="canonical" href="https://cozzee2013-oss.github.io/ox/">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" sizes="192x192" href="assets/icon-192.png">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="og:site_name" content="퀴즈 플레이">
+  <meta property="og:title" content="퀴즈 플레이 | 함께 즐기는 실시간 OX 퀴즈">
+  <meta property="og:description" content="함께 푸는 실시간 OX·객관식 퀴즈. 직접 문제를 만들고 친구들과 즐겨요.">
+  <meta property="og:url" content="https://cozzee2013-oss.github.io/ox/">
+  <meta property="og:image" content="https://cozzee2013-oss.github.io/ox/assets/cosmic.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="퀴즈 플레이 | 함께 즐기는 실시간 OX 퀴즈">
+  <meta name="twitter:description" content="함께 푸는 실시간 OX·객관식 퀴즈. 직접 문제를 만들고 친구들과 즐겨요.">
+  <meta name="twitter:image" content="https://cozzee2013-oss.github.io/ox/assets/cosmic.jpg">
+</head>
+<body class="home">
+  <header class="topbar"><a class="brand" href="index.html"><span>✦</span> QUIZ PLAY</a><div class="account-actions"><span id="account-status" role="status"></span><button class="account-btn" id="account-btn">Google 로그인</button><a class="top-link" href="classroom.html">우리 클래스</a><a class="top-link" href="reports.html">학습 결과</a><a class="top-link" href="play.html">게임 참가하기 ↗</a></div></header>
+  <main class="home-main">
+    <div class="home-copy">
+      <span class="eyebrow">PLAY · LEARN · SHINE</span>
+      <h1>함께 풀면<br><em>더 신나는 퀴즈!</em></h1>
+      <p>직접 문제를 만들고, 친구들과 실시간으로 즐겨요.<br>배우는 순간이 반짝이는 게임이 됩니다.</p>
+      <div class="home-actions"><a class="btn primary" href="editor.html">✦ 퀴즈 만들기</a><a class="btn light" href="play.html">PIN으로 참가하기 →</a></div>
+      <div class="features"><span>✎ 쉽고 빠른 문제 만들기</span><span>⚡ 실시간 플레이</span><span>🏆 결과와 순위</span></div>
+    </div>
+    <div class="hero-art" aria-hidden="true"><span class="orbit orbit-one">✦</span><span class="orbit orbit-two">✳</span><div class="hero-card"><span class="hero-card-label">READY TO PLAY?</span><div class="hero-question">?</div><div class="hero-answers"><i>O</i><i>X</i></div><b>LET'S QUIZ!</b></div><span class="hero-star">✷</span></div>
+  </main>
+  <section class="library"><div class="section-title"><div><span class="eyebrow">YOUR QUIZZES</span><h2>내 퀴즈</h2><p>저장한 퀴즈를 열어 바로 시작하세요.</p></div><a class="text-link" href="editor.html">+ 새 퀴즈</a></div><div id="quiz-list" class="quiz-list"></div></section>
+  <script src="js/ui.js" defer></script>
+  <script type="module" src="js/home.js"></script>
+</body>
+</html>
