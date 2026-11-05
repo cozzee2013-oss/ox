@@ -23,13 +23,8 @@ async function verify(token: string) {
   return payload.sub;
 }
 async function reserve(uid: string) {
-  const url = Deno.env.get("SUPABASE_URL"), key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!url || !key) throw new Error("quota unavailable");
-  const response = await fetch(url + "/rest/v1/rpc/quiz_ai_reserve", { method: "POST", headers: { apikey: key, Authorization: "Bearer " + key, "Content-Type": "application/json" }, body: JSON.stringify({ p_uid: uid }), signal: AbortSignal.timeout(10000) });
-  if (!response.ok) throw new Error("quota unavailable");
-  const quota = await response.json();
-  if (typeof quota?.allowed !== "boolean") throw new Error("quota unavailable");
-  return quota;
+  // No application-imposed generation quota; Google identity validation remains.
+  return { allowed: true };
 }
 async function generate(source: string, count: number, type: string) {
   const key = Deno.env.get("GEMINI_API_KEY")?.trim() || Deno.env.get("GEMINI_API_KEY_BACKUP")?.trim();
