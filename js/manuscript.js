@@ -23,17 +23,32 @@ const decodeEntities = text => {
 };
 const clean = text => text.replace(/\r/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 
-// <p> 단위로 끊고 그 안의 <t> 글자를 모은다. (pptx: a:p/a:t, docx: w:p/w:t, hwpx: hp:p/hp:t)
-function xmlParagraphs(xml, p, t) {
-  const para = new RegExp(`<${p}[ >][\\s\\S]*?</${p}>`, "g");
-  const run = new RegExp(`<${t}(?:\\s[^>]*)?>([\\s\\S]*?)</${t}>`, "g");
-  const lines = [];
-  for (const block of xml.match(para) || []) {
-    let line = "";
-    for (const m of block.matchAll(run)) line += decodeEntities(m[1].replace(/<[^>]+>/g, ""));
-    lines.push(line);
-  }
-  return lines.join("\n");
+// XML을 실제로 해석해 문단(p)마다 줄을 바꾸고 글자(t)를 모은다. (pptx: a:p/a:t, docx: w:p/w:t, hwpx: hp:p/hp:t)
+// 표 셀·각주처럼 문단 안에 문단이 들어 있어도 글자가 빠지지 않는다.
+function xmlParagraphs(xml) {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length) return legacyParagraphs(xml);
+  let out = "";
+  const walk = node => {
+    for (const child of node.childNodes) {
+      if (child.nodeType !== 1) continue;
+      const name = child.localName;
+      if (name === "t") out += child.textContent;
+      else if (name === "tab") out += " ";
+      else if (name === "br" || name === "lineBreak" || name === "cr") out += "\n";
+      else if (name === "instrText" || name === "delText") continue; // 필드 코드·삭제된 글자는 건너뜀
+      else {
+        walk(child);
+        if (name === "p" || name === "tc" || name === "tr") out += "\n";
+      }
+    }
+  };
+  walk(doc.documentElement);
+  return out;
+}
+// XML 해석에 실패한 경우를 위한 예전 방식
+function legacyParagraphs(xml) {
+  return [...xml.matchAll(/<(?:\w+:)?t(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?t>/g)].map(m => decodeEntities(m[1].replace(/<[^>]+>/g, ""))).join(" ");
 }
 
 const byNumber = (a, b) => Number(a.match(/(\d+)\.xml$/)[1]) - Number(b.match(/(\d+)\.xml$/)[1]);
@@ -49,7 +64,13 @@ async function readPptx(file) {
   const slides = Object.keys(zip.files).filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n)).sort(byNumber);
   if (!slides.length) throw new Error("PPT 슬라이드를 찾지 못했어요.");
   const parts = [];
-  for (const name of slides) parts.push(xmlParagraphs(await zip.file(name).async("string"), "a:p", "a:t"));
+  for (const name of slides) parts.push(xmlParagraphs(await zip.file(name).async("string")));
+  // 발표자 노트도 함께 읽는다
+  const notes = Object.keys(zip.files).filter(n => /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(n)).sort(byNumber);
+  for (const name of notes) {
+    const text = xmlParagraphs(await zip.file(name).async("string")).trim();
+    if (text && !/^\d+$/.test(text)) parts.push("[발표자 노트] " + text);
+  }
   return parts.join("\n\n");
 }
 
@@ -57,7 +78,15 @@ async function readDocx(file) {
   const zip = await openZip(file);
   const doc = zip.file("word/document.xml");
   if (!doc) throw new Error("워드 본문을 찾지 못했어요.");
-  return xmlParagraphs(await doc.async("string"), "w:p", "w:t");
+  const parts = [xmlParagraphs(await doc.async("string"))];
+  // 각주·미주도 함께 읽는다
+  for (const name of ["word/footnotes.xml", "word/endnotes.xml"]) {
+    const file = zip.file(name);
+    if (!file) continue;
+    const text = xmlParagraphs(await file.async("string")).trim();
+    if (text) parts.push(`[${name.includes("foot") ? "각주" : "미주"}]\n${text}`);
+  }
+  return parts.join("\n\n");
 }
 
 async function readHwpx(file) {
@@ -65,7 +94,7 @@ async function readHwpx(file) {
   const sections = Object.keys(zip.files).filter(n => /^Contents\/section\d+\.xml$/i.test(n)).sort(byNumber);
   if (!sections.length) throw new Error("한글 본문을 찾지 못했어요.");
   const parts = [];
-  for (const name of sections) parts.push(xmlParagraphs(await zip.file(name).async("string"), "hp:p", "hp:t"));
+  for (const name of sections) parts.push(xmlParagraphs(await zip.file(name).async("string")));
   return parts.join("\n");
 }
 

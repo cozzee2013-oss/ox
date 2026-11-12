@@ -273,3 +273,7 @@ a { color:inherit; text-decoration:none; }
 [data-theme="dark"] .level-select[data-level="easy"] { background:#1f3d33; color:#9fe4c6; border-color:#2f6b55; }
 [data-theme="dark"] .level-select[data-level="medium"] { background:#3d3219; color:#f3cf7c; border-color:#6b5524; }
 [data-theme="dark"] .level-select[data-level="hard"] { background:#46202d; color:#ffadc4; border-color:#7a3248; }
+
+/* 원고 글자 수 */
+.source-count { margin:6px 2px 0; min-height:1em; color:var(--muted); font-size:12px; line-height:1.6; }
+.source-count.over { color:#e33f66; font-weight:bold; }

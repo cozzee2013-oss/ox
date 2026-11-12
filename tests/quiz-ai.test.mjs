@@ -102,3 +102,44 @@ test("난이도를 검사하고 문항마다 저장한다", async () => {
   const wrong = handler({ generate: async () => [{ ...question, difficulty: "easy" }] });
   assert.equal((await (await wrong(request({ ...valid, difficulty: "hard" }))).json()).questions[0].difficulty, "hard");
 });
+
+import { splitSource, condenseSource, SINGLE_LIMIT, MAX_SOURCE } from "../supabase/functions/quiz-ai/core.mjs";
+
+test("긴 원고는 문단 경계에서 빠짐없이 구간으로 나눈다", () => {
+  const paragraphs = Array.from({ length: 400 }, (_, i) => `제${i + 1}문단 ` + "가".repeat(600));
+  const text = paragraphs.join("\n\n");
+  const parts = splitSource(text);
+  assert.ok(parts.length >= 3);
+  assert.ok(parts.every(part => part.length <= SINGLE_LIMIT));
+  assert.equal(parts.join("\n\n"), text);
+  assert.ok(parts.every(part => part.startsWith("제")));
+  assert.deepEqual(splitSource("짧은 원고"), ["짧은 원고"]);
+});
+
+test("긴 원고는 모든 구간을 정리해 순서대로 합친다", async () => {
+  const seen = [];
+  const notes = await condenseSource("A".repeat(SINGLE_LIMIT * 2 + 10), async (part, i, total) => { seen.push([i, total, part.length]); return `노트${i}`; });
+  assert.deepEqual(seen.map(([i]) => i).sort(), [1, 2, 3]);
+  assert.match(notes, /\[구간 1\/3\]\n노트1[\s\S]*\[구간 3\/3\]\n노트3/);
+});
+
+test("15,000자를 넘는 원고도 받고, 긴 원고는 전체를 정리한 노트로 출제한다", async () => {
+  let material, condensedFlag, summaries = 0;
+  const run = handler({
+    summarize: async (part, i) => { summaries++; return `구간${i} 핵심`; },
+    generate: async (src, count, type, plan, condensed) => { material = src; condensedFlag = condensed; return [question]; }
+  });
+  const medium = "가".repeat(50000);
+  assert.equal((await run(request({ ...valid, source: medium }))).status, 200);
+  assert.equal(material, medium);
+  assert.equal(condensedFlag, false);
+  assert.equal(summaries, 0);
+  const long = "나".repeat(250000);
+  const result = await run(request({ ...valid, source: long }));
+  assert.equal(result.status, 200);
+  assert.equal((await result.json()).sections, 4);
+  assert.equal(summaries, 4);
+  assert.equal(condensedFlag, true);
+  assert.match(material, /구간1 핵심[\s\S]*구간4 핵심/);
+  assert.equal((await run(request({ ...valid, source: "다".repeat(MAX_SOURCE + 1) }))).status, 413);
+});

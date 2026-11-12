@@ -17,6 +17,19 @@ const LEVELS = {
 };
 const MIX_HINT = "선택한 비율대로 하·중·상을 섞고, 쉬운 문제부터 순서대로 추가해요.";
 let aiLevel = "medium";
+// 원고 길이: 서버와 같은 기준. 긴 원고는 서버가 구간별로 정리한 뒤 전체에서 고르게 출제합니다.
+const MAX_SOURCE = 400000, SINGLE_LIMIT = 80000;
+const sectionCount = length => Math.ceil(length / SINGLE_LIMIT);
+function showSourceCount() {
+  const length = $("ai-source").value.trim().length;
+  const box = $("ai-source-count");
+  box.classList.toggle("over", length > MAX_SOURCE);
+  box.textContent = !length ? "" : length > MAX_SOURCE
+    ? `${length.toLocaleString()}자 · 최대 ${MAX_SOURCE.toLocaleString()}자까지 넣을 수 있어요. 필요 없는 부분을 줄여 주세요.`
+    : length > SINGLE_LIMIT
+      ? `${length.toLocaleString()}자 · 긴 원고라서 약 ${sectionCount(length)}개 구간으로 나눠 정리한 뒤 전체에서 고르게 출제해요. (1~2분 걸릴 수 있어요)`
+      : `${length.toLocaleString()}자`;
+}
 
 function renderThemes() {
   $("themes").innerHTML = themes.map(theme => `<button type="button" class="theme-choice ${quiz.theme === theme.id ? "selected" : ""}" data-theme="${theme.id}" aria-pressed="${quiz.theme === theme.id}"><span class="theme-preview theme-${theme.id}"><i>✦</i><b>✳</b></span><strong>${theme.name}</strong><small>${theme.detail}</small></button>`).join("");
@@ -124,12 +137,13 @@ $("ai-file").onchange = async event => {
   $("ai-file-name").textContent = file.name + " 읽는 중…";
   $("ai-message").textContent = "";
   try {
-    let text = await readManuscript(file);
-    const cut = text.length > 15000;
-    if (cut) text = text.slice(0, 15000);
+    const text = await readManuscript(file);
     $("ai-source").value = text;
     $("ai-file-name").textContent = file.name;
-    $("ai-message").textContent = cut ? "원고가 길어 앞쪽 15,000자만 불러왔어요. 필요한 부분만 남겨 주세요." : `${text.length.toLocaleString()}자를 불러왔어요. 내용을 확인한 뒤 문제를 만들어 주세요.`;
+    showSourceCount();
+    $("ai-message").textContent = text.length > MAX_SOURCE
+      ? `${text.length.toLocaleString()}자를 모두 불러왔지만 최대 ${MAX_SOURCE.toLocaleString()}자까지 문제를 만들 수 있어요. 출제할 부분만 남겨 주세요.`
+      : `${text.length.toLocaleString()}자를 모두 불러왔어요. 내용을 확인한 뒤 문제를 만들어 주세요.`;
   } catch (error) {
     $("ai-file-name").textContent = "한글·PPT·PDF·워드·텍스트 파일 (.hwp .hwpx .pptx .pdf .docx .txt)";
     $("ai-message").textContent = error.message || "파일을 읽지 못했어요.";
@@ -150,6 +164,7 @@ async function requestQuestions(user, body) {
     ({ response, result } = await call(rest));
     legacy = true;
   }
+  if (!response.ok && /15,000자|원고가 너무 깁니다\.$/.test(result.error || "") && body.source.length > 15000) throw new Error("AI 서버가 아직 이전 버전이라 15,000자까지만 받아요. Supabase의 quiz-ai 함수를 새 버전으로 다시 배포해 주세요.");
   if (!response.ok) throw new Error(result.error || "문제를 만들지 못했어요.");
   if (!Array.isArray(result.questions) || !result.questions.length) throw new Error("생성된 문제를 확인하지 못했어요.");
   return { questions: result.questions, legacy };
@@ -179,15 +194,19 @@ $("ai-level").addEventListener("keydown", event => {
   $("ai-level").querySelector(`[data-level="${next}"]`).focus();
 });
 selectLevel("medium");
+$("ai-source").addEventListener("input", showSourceCount);
 
 $("ai-generate").onclick = async () => {
   const user = auth.currentUser;
   const source = $("ai-source").value.trim();
   const targetQuiz = quiz;
   if (!user || user.uid !== ownerUid) { $("ai-message").textContent = "Google 로그인 후 이용해 주세요."; return; }
-  if (!source || source.length > 15000) { $("ai-message").textContent = "원고나 퀴즈 주제를 입력해 주세요. (최대 15,000자)"; return; }
+  if (!source) { $("ai-message").textContent = "원고나 퀴즈 주제를 입력해 주세요."; return; }
+  if (source.length > MAX_SOURCE) { $("ai-message").textContent = `원고가 너무 길어요. 최대 ${MAX_SOURCE.toLocaleString()}자까지 넣을 수 있어요.`; return; }
   $("ai-generate").disabled = true;
-  $("ai-message").textContent = "원고를 읽고 문제를 만들고 있어요.";
+  $("ai-message").textContent = source.length > SINGLE_LIMIT
+    ? `긴 원고(${source.length.toLocaleString()}자)를 ${sectionCount(source.length)}개 구간으로 나눠 정리하고 있어요. 1~2분 정도 걸릴 수 있어요.`
+    : "원고를 읽고 문제를 만들고 있어요.";
   try {
     const difficulty = aiLevel === "mix" ? $("ai-mix").value : aiLevel;
     const { questions, legacy } = await requestQuestions(user, { source, type: $("ai-type").value, count: Number($("ai-count").value), difficulty });
@@ -195,7 +214,7 @@ $("ai-generate").onclick = async () => {
     quiz.questions.push(...questions);
     renderQuestions();
     const tally = Object.keys(LEVELS).map(key => [LEVELS[key].name, questions.filter(q => q.difficulty === key).length]).filter(([, n]) => n).map(([name, n]) => `${name} ${n}`).join(" · ");
-    $("ai-message").textContent = `${questions.length}개 문제를 추가했어요${tally ? ` (${tally})` : ""}. 정답·해설·난이도를 확인한 뒤 저장해 주세요.` + (legacy ? LEGACY_NOTE : "");
+    $("ai-message").textContent = `${source.length > SINGLE_LIMIT ? `원고 전체(${source.length.toLocaleString()}자)에서 ` : ""}${questions.length}개 문제를 추가했어요${tally ? ` (${tally})` : ""}. 정답·해설·난이도를 확인한 뒤 저장해 주세요.` + (legacy ? LEGACY_NOTE : "");
     $("questions").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     $("ai-message").textContent = error.message || "연결에 실패했어요. 다시 시도해 주세요.";
@@ -209,7 +228,8 @@ $("ai-generate").onclick = async () => {
 async function regenerate(i, button) {
   const user = auth.currentUser, item = quiz.questions[i], targetQuiz = quiz;
   if (!user || user.uid !== ownerUid) { $("editor-message").textContent = "Google 로그인 후 이용해 주세요."; return; }
-  const source = ($("ai-source").value.trim() || [item.q, item.exp].filter(Boolean).join("\n")).slice(0, 15000);
+  const source = $("ai-source").value.trim() || [item.q, item.exp].filter(Boolean).join("\n");
+  if (source.length > MAX_SOURCE) { $("editor-message").textContent = `위 원고가 너무 길어요. 최대 ${MAX_SOURCE.toLocaleString()}자까지 넣을 수 있어요.`; return; }
   if (!source.trim()) { $("editor-message").textContent = `${i + 1}번 문제를 입력하거나 위에 주제·원고를 넣은 뒤 다시 만들어 주세요.`; return; }
   const level = item.difficulty || "medium";
   button.disabled = true;
