@@ -7,6 +7,7 @@ const BPM = 74;
 const STEP = 60 / BPM / 4; // 16분음표 길이(초)
 const SWING = 0.18;        // 엇박 16분음표를 살짝 늦춰 느긋한 느낌
 const LOOKAHEAD = 0.15;
+const LOOKAHEAD_HIDDEN = 2;  // 다른 탭에 있을 때는 타이머가 느려지므로 더 멀리 예약해 끊김을 막습니다
 const VOLUME = 0.9;
 
 // 로파이에서 흔한 편안한 진행: Fmaj9 – Em7 – Dm9 – Cmaj9 (각 1마디)
@@ -111,7 +112,11 @@ function playStep(i, t) {
 }
 
 function schedule() {
-  while (nextTime < ctx.currentTime + LOOKAHEAD) {
+  if (ctx.state === "suspended") ctx.resume();
+  const ahead = document.hidden ? LOOKAHEAD_HIDDEN : LOOKAHEAD;
+  // 너무 뒤처졌으면(기기 절전 등) 박자를 현재 시각으로 다시 맞춥니다
+  if (nextTime < ctx.currentTime - 0.5) nextTime = ctx.currentTime + 0.05;
+  while (nextTime < ctx.currentTime + ahead) {
     const swing = step % 2 ? STEP * SWING : 0;
     playStep(step, nextTime + swing);
     step++;

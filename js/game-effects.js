@@ -44,17 +44,16 @@ const enableAudio = () => {
   syncBgm();
 };
 
-// 화면에 따라 배경음악 분위기를 바꿉니다. 문제 화면은 잔잔한 비트로 집중을, 대기·결과 화면은 화음만 잔잔하게.
-// 최종 결과(end)에서는 축하 효과음이 잘 들리도록 배경음악을 멈춥니다.
-const BGM_SCREENS = { lobby: "calm", wait: "calm", sent: "calm", result: "calm", reveal: "calm", question: "focus" };
-const currentMood = () => {
-  const visible = Object.keys(BGM_SCREENS).find(id => { const el = document.getElementById(id); return el && !el.hidden; });
-  return visible ? BGM_SCREENS[visible] : null;
-};
+// 배경음악은 게임이 끝날 때까지 끊기지 않고 무한 반복합니다.
+// 문제 화면은 잔잔한 비트로 집중을, 그 밖의 화면은 화음만 잔잔하게 연주합니다.
+// 최종 결과(end) 화면이 나오면 축하 효과음이 잘 들리도록 그때 멈춥니다.
+// 다른 탭으로 전환하거나 화면이 잠시 바뀌어도 멈추지 않습니다.
+const isShown = id => { const el = document.getElementById(id); return !!el && !el.hidden; };
 function syncBgm() {
-  const mood = currentMood();
-  if (muted || !audio || !mood || document.hidden) stopBgm();
-  else startBgm(audio, mood);
+  if (muted || !audio || isShown("end")) return stopBgm();
+  const mood = isShown("question") ? "focus" : "calm";
+  if (audio.state === "suspended") audio.resume();
+  startBgm(audio, mood);
 }
 new MutationObserver(syncBgm).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["hidden"] });
 document.addEventListener("visibilitychange", syncBgm);
