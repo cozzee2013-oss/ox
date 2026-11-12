@@ -22,7 +22,7 @@ test("입력이 유효할 때만 사용량을 예약한다", async () => {
   assert.equal(reservations, 0);
   const result = await run(request({ ...valid, source: "성경인물" }));
   assert.equal(result.status, 200);
-  assert.deepEqual((await result.json()).questions, [{ ...question, time: 20 }]);
+  assert.deepEqual((await result.json()).questions, [{ ...question, time: 20, difficulty: "medium" }]);
   assert.equal(reservations, 1);
 });
 test("호출 제한은 AI 호출 전에 적용된다", async () => {
@@ -63,4 +63,42 @@ test("AI가 정답을 모두 1번에 배치해도 객관식 정답 위치를 골
     assert.equal(item.exp, `해설 ${index}`);
   });
   assert.deepEqual(positionCounts, [3, 3, 3, 3]);
+});
+
+import { difficultyPlan, buildPrompt } from "../supabase/functions/quiz-ai/core.mjs";
+const tally = plan => plan.reduce((t, level) => ({ ...t, [level]: (t[level] || 0) + 1 }), {});
+
+test("난이도별·혼합 출제 비율대로 문항 난이도를 배분한다", () => {
+  assert.deepEqual(difficultyPlan(5, "hard"), Array(5).fill("hard"));
+  assert.deepEqual(difficultyPlan(3), Array(3).fill("medium"));
+  assert.deepEqual(tally(difficultyPlan(10, "basic")), { easy: 5, medium: 4, hard: 1 });
+  assert.deepEqual(tally(difficultyPlan(10, "standard")), { easy: 2, medium: 6, hard: 2 });
+  assert.deepEqual(tally(difficultyPlan(10, "advanced")), { easy: 1, medium: 4, hard: 5 });
+  for (const mix of ["basic", "standard", "advanced"]) for (let n = 1; n <= 20; n++) assert.equal(difficultyPlan(n, mix).length, n);
+  assert.deepEqual(difficultyPlan(5, "standard"), ["easy", "medium", "medium", "medium", "hard"]);
+});
+
+test("지시문에는 요청한 난이도의 기준만 넣는다", () => {
+  const easy = buildPrompt("평등선거", 3, "ox", difficultyPlan(3, "easy"));
+  assert.match(easy, /하\(쉬움\) 3개/);
+  assert.match(easy, /1단계 사고/);
+  assert.doesNotMatch(easy, /3단계 이상의 논리적 추론/);
+  const mixed = buildPrompt("평등선거", 10, "mixed", difficultyPlan(10, "advanced"));
+  assert.match(mixed, /하\(쉬움\) 1개, 중\(보통\) 4개, 상\(어려움\) 5개/);
+  assert.match(mixed, /3단계 이상의 논리적 추론/);
+});
+
+test("난이도를 검사하고 문항마다 저장한다", async () => {
+  let received;
+  const run = handler({ generate: async (_s, count, _t, plan) => { received = plan; return plan.map(level => ({ ...question, difficulty: level })); } });
+  assert.equal((await run(request({ ...valid, difficulty: "extreme" }))).status, 400);
+  const plain = await (await run(request(valid))).json();
+  assert.equal(plain.questions[0].difficulty, "medium");
+  const result = await run(request({ ...valid, count: 5, difficulty: "standard" }));
+  assert.equal(result.status, 200);
+  assert.deepEqual((await result.json()).questions.map(q => q.difficulty), ["easy", "medium", "medium", "medium", "hard"]);
+  assert.deepEqual(received, ["easy", "medium", "medium", "medium", "hard"]);
+  // AI가 요청하지 않은 난이도를 붙이면 배분 계획을 따른다
+  const wrong = handler({ generate: async () => [{ ...question, difficulty: "easy" }] });
+  assert.equal((await (await wrong(request({ ...valid, difficulty: "hard" }))).json()).questions[0].difficulty, "hard");
 });

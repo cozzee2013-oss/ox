@@ -9,12 +9,21 @@ let quiz = { id: crypto.randomUUID(), title: "", description: "", theme: "cosmic
 let ownerUid = "", authRequest = 0;
 let imagesLoading = 0;
 
+// 난이도: 정답을 판단하는 데 필요한 사고 수준으로 구분합니다.
+const LEVELS = {
+  easy: { name: "하", label: "하 · 쉬움", hint: "핵심 개념·정의·기본 사실을 묻는 1단계 사고 문제예요. 예상 정답률 80~90%" },
+  medium: { name: "중", label: "중 · 보통", hint: "간단한 사례에 개념을 적용하거나 혼동하기 쉬운 개념을 구별하는 2단계 사고 문제예요. 예상 정답률 55~75%" },
+  hard: { name: "상", label: "상 · 어려움", hint: "복합 사례에서 원칙과 예외, 조건 충족 여부를 종합해 판단하는 3단계 이상 추론 문제예요. 예상 정답률 25~45%" }
+};
+const MIX_HINT = "선택한 비율대로 하·중·상을 섞고, 쉬운 문제부터 순서대로 추가해요.";
+let aiLevel = "medium";
+
 function renderThemes() {
   $("themes").innerHTML = themes.map(theme => `<button type="button" class="theme-choice ${quiz.theme === theme.id ? "selected" : ""}" data-theme="${theme.id}" aria-pressed="${quiz.theme === theme.id}"><span class="theme-preview theme-${theme.id}"><i>✦</i><b>✳</b></span><strong>${theme.name}</strong><small>${theme.detail}</small></button>`).join("");
 }
 function renderQuestions() {
   $("question-count").textContent = quiz.questions.length;
-  $("questions").innerHTML = quiz.questions.map((item, i) => `<article class="question-editor"><div class="question-head"><div><span class="number-badge">${String(i + 1).padStart(2, "0")}</span><strong>${item.type === "ox" ? "O/X 문제" : "객관식 문제"}</strong></div><div class="question-tools"><button data-action="up" data-i="${i}" aria-label="문제 위로 이동" ${i === 0 ? "disabled" : ""}>↑</button><button data-action="down" data-i="${i}" aria-label="문제 아래로 이동" ${i === quiz.questions.length - 1 ? "disabled" : ""}>↓</button><button data-action="delete" data-i="${i}" aria-label="문제 삭제">✕</button></div></div><label class="field">문제<input data-field="q" data-i="${i}" value="${esc(item.q)}" maxlength="250" placeholder="문제를 입력하세요"></label><div class="image-field"><label class="upload-label">🖼️ 문제 이미지 추가<input type="file" accept="image/jpeg,image/png,image/webp" data-field="image" data-i="${i}"></label><span>선택 · 사진은 자동으로 크기를 줄여 저장해요</span>${item.image ? `<div class="image-preview"><img src="${esc(item.image)}" alt="문제 이미지 미리보기"><button type="button" data-action="remove-image" data-i="${i}">이미지 삭제</button></div>` : ""}</div><div class="field"><span>정답 선택 <small class="optional">정답을 눌러 선택하세요</small></span><div class="editor-options">${item.options.map((option, j) => `<div class="option-edit"><button class="correct-pick ${item.answer === j ? "picked" : ""}" data-action="answer" data-i="${i}" data-j="${j}" aria-label="${j + 1}번 정답 선택" aria-pressed="${item.answer === j}">${item.answer === j ? "✓" : j + 1}</button><input data-field="option" data-i="${i}" data-j="${j}" value="${esc(option)}" maxlength="100" ${item.type === "ox" ? "readonly" : ""} placeholder="보기 ${j + 1}"></div>`).join("")}</div></div><div class="question-details"><label class="field">해설 <span class="optional">선택</span><input data-field="exp" data-i="${i}" value="${esc(item.exp)}" maxlength="300" placeholder="정답에 대한 설명을 입력하세요"></label><label class="field time-field">제한 시간<select data-field="time" data-i="${i}">${[10, 20, 30, 45, 60, 90, 120].map(n => `<option value="${n}" ${item.time === n ? "selected" : ""}>${n}초</option>`).join("")}</select></label></div></article>`).join("");
+  $("questions").innerHTML = quiz.questions.map((item, i) => `<article class="question-editor"><div class="question-head"><div><span class="number-badge">${String(i + 1).padStart(2, "0")}</span><strong>${item.type === "ox" ? "O/X 문제" : "객관식 문제"}</strong><select class="level-select" data-field="difficulty" data-i="${i}" data-level="${item.difficulty || ""}" aria-label="${i + 1}번 문제 난이도"><option value="" ${!item.difficulty ? "selected" : ""}>난이도 없음</option>${Object.entries(LEVELS).map(([key, level]) => `<option value="${key}" ${item.difficulty === key ? "selected" : ""}>${level.label}</option>`).join("")}</select></div><div class="question-tools"><button data-action="regen" data-i="${i}" aria-label="${i + 1}번 문제를 선택한 난이도로 AI가 다시 만들기" title="선택한 난이도로 다시 만들기">↻</button><button data-action="up" data-i="${i}" aria-label="문제 위로 이동" ${i === 0 ? "disabled" : ""}>↑</button><button data-action="down" data-i="${i}" aria-label="문제 아래로 이동" ${i === quiz.questions.length - 1 ? "disabled" : ""}>↓</button><button data-action="delete" data-i="${i}" aria-label="문제 삭제">✕</button></div></div><label class="field">문제<input data-field="q" data-i="${i}" value="${esc(item.q)}" maxlength="250" placeholder="문제를 입력하세요"></label><div class="image-field"><label class="upload-label">🖼️ 문제 이미지 추가<input type="file" accept="image/jpeg,image/png,image/webp" data-field="image" data-i="${i}"></label><span>선택 · 사진은 자동으로 크기를 줄여 저장해요</span>${item.image ? `<div class="image-preview"><img src="${esc(item.image)}" alt="문제 이미지 미리보기"><button type="button" data-action="remove-image" data-i="${i}">이미지 삭제</button></div>` : ""}</div><div class="field"><span>정답 선택 <small class="optional">정답을 눌러 선택하세요</small></span><div class="editor-options">${item.options.map((option, j) => `<div class="option-edit"><button class="correct-pick ${item.answer === j ? "picked" : ""}" data-action="answer" data-i="${i}" data-j="${j}" aria-label="${j + 1}번 정답 선택" aria-pressed="${item.answer === j}">${item.answer === j ? "✓" : j + 1}</button><input data-field="option" data-i="${i}" data-j="${j}" value="${esc(option)}" maxlength="100" ${item.type === "ox" ? "readonly" : ""} placeholder="보기 ${j + 1}"></div>`).join("")}</div></div><div class="question-details"><label class="field">해설 <span class="optional">선택</span><input data-field="exp" data-i="${i}" value="${esc(item.exp)}" maxlength="300" placeholder="정답에 대한 설명을 입력하세요"></label><label class="field time-field">제한 시간<select data-field="time" data-i="${i}">${[10, 20, 30, 45, 60, 90, 120].map(n => `<option value="${n}" ${item.time === n ? "selected" : ""}>${n}초</option>`).join("")}</select></label></div></article>`).join("");
 }
 $("themes").addEventListener("click", event => {
   const button = event.target.closest("[data-theme]");
@@ -24,6 +33,11 @@ $("questions").addEventListener("input", event => {
   const el = event.target, item = quiz.questions[Number(el.dataset.i)];
   if (!item) return;
   if (el.dataset.field === "image") return;
+  if (el.dataset.field === "difficulty") {
+    if (el.value) item.difficulty = el.value; else delete item.difficulty;
+    el.dataset.level = el.value;
+    return;
+  }
   if (el.dataset.field === "option") item.options[Number(el.dataset.j)] = el.value;
   else if (el.dataset.field === "time") item.time = Number(el.value);
   else if (el.dataset.field) item[el.dataset.field] = el.value;
@@ -67,6 +81,7 @@ $("questions").addEventListener("click", event => {
   const button = event.target.closest("[data-action]");
   if (!button) return;
   const i = Number(button.dataset.i), action = button.dataset.action;
+  if (action === "regen") return regenerate(i, button);
   if (action === "answer") quiz.questions[i].answer = Number(button.dataset.j);
   if (action === "delete") quiz.questions.splice(i, 1);
   if (action === "remove-image") delete quiz.questions[i].image;
@@ -120,6 +135,51 @@ $("ai-file").onchange = async event => {
     $("ai-message").textContent = error.message || "파일을 읽지 못했어요.";
   }
 };
+// AI 서버에 문제 생성을 요청합니다. 난이도를 아직 모르는 이전 버전 서버면 난이도 없이 다시 요청합니다.
+async function requestQuestions(user, body) {
+  const token = await user.getIdToken();
+  const call = payload => fetch(aiConfig.functionUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: aiConfig.publishableKey, Authorization: "Bearer " + token },
+    body: JSON.stringify(payload)
+  }).then(async response => ({ response, result: await response.json() }));
+  let { response, result } = await call(body);
+  let legacy = false;
+  if (response.status === 400 && body.difficulty && result.error === "요청 형식을 확인해 주세요.") {
+    const { difficulty, ...rest } = body;
+    ({ response, result } = await call(rest));
+    legacy = true;
+  }
+  if (!response.ok) throw new Error(result.error || "문제를 만들지 못했어요.");
+  if (!Array.isArray(result.questions) || !result.questions.length) throw new Error("생성된 문제를 확인하지 못했어요.");
+  return { questions: result.questions, legacy };
+}
+const LEGACY_NOTE = " (AI 서버가 아직 난이도를 지원하지 않아 난이도 없이 만들었어요. Supabase의 quiz-ai 함수를 새 버전으로 다시 배포해 주세요.)";
+
+function selectLevel(level) {
+  aiLevel = level;
+  $("ai-level").querySelectorAll("[data-level]").forEach(button => {
+    const on = button.dataset.level === level;
+    button.classList.toggle("selected", on);
+    button.setAttribute("aria-checked", String(on));
+  });
+  $("ai-mix").hidden = level !== "mix";
+  $("ai-level-hint").textContent = level === "mix" ? MIX_HINT : LEVELS[level].hint;
+}
+$("ai-level").addEventListener("click", event => {
+  const button = event.target.closest("[data-level]");
+  if (button) selectLevel(button.dataset.level);
+});
+$("ai-level").addEventListener("keydown", event => {
+  const keys = ["easy", "medium", "hard", "mix"], move = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+  if (!move) return;
+  event.preventDefault();
+  const next = keys[(keys.indexOf(aiLevel) + move + keys.length) % keys.length];
+  selectLevel(next);
+  $("ai-level").querySelector(`[data-level="${next}"]`).focus();
+});
+selectLevel("medium");
+
 $("ai-generate").onclick = async () => {
   const user = auth.currentUser;
   const source = $("ai-source").value.trim();
@@ -129,19 +189,13 @@ $("ai-generate").onclick = async () => {
   $("ai-generate").disabled = true;
   $("ai-message").textContent = "원고를 읽고 문제를 만들고 있어요.";
   try {
-    const token = await user.getIdToken();
-    const response = await fetch(aiConfig.functionUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: aiConfig.publishableKey, Authorization: "Bearer " + token },
-      body: JSON.stringify({ source, type: $("ai-type").value, count: Number($("ai-count").value) })
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "문제를 만들지 못했어요.");
+    const difficulty = aiLevel === "mix" ? $("ai-mix").value : aiLevel;
+    const { questions, legacy } = await requestQuestions(user, { source, type: $("ai-type").value, count: Number($("ai-count").value), difficulty });
     if (auth.currentUser?.uid !== user.uid || targetQuiz !== quiz) throw new Error("계정이 변경되어 문제를 추가하지 않았어요.");
-    if (!Array.isArray(result.questions) || !result.questions.length) throw new Error("생성된 문제를 확인하지 못했어요.");
-    quiz.questions.push(...result.questions);
+    quiz.questions.push(...questions);
     renderQuestions();
-    $("ai-message").textContent = `${result.questions.length}개 문제를 추가했어요. 정답과 해설을 확인한 뒤 저장해 주세요.`;
+    const tally = Object.keys(LEVELS).map(key => [LEVELS[key].name, questions.filter(q => q.difficulty === key).length]).filter(([, n]) => n).map(([name, n]) => `${name} ${n}`).join(" · ");
+    $("ai-message").textContent = `${questions.length}개 문제를 추가했어요${tally ? ` (${tally})` : ""}. 정답·해설·난이도를 확인한 뒤 저장해 주세요.` + (legacy ? LEGACY_NOTE : "");
     $("questions").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     $("ai-message").textContent = error.message || "연결에 실패했어요. 다시 시도해 주세요.";
@@ -149,6 +203,31 @@ $("ai-generate").onclick = async () => {
     $("ai-generate").disabled = false;
   }
 };
+
+// 한 문제를 그 문제에 지정한 난이도로 AI가 새로 만듭니다.
+// 위의 '주제 또는 원고'가 있으면 그 내용에서, 없으면 지금 문제·해설의 내용을 바탕으로 만듭니다.
+async function regenerate(i, button) {
+  const user = auth.currentUser, item = quiz.questions[i], targetQuiz = quiz;
+  if (!user || user.uid !== ownerUid) { $("editor-message").textContent = "Google 로그인 후 이용해 주세요."; return; }
+  const source = ($("ai-source").value.trim() || [item.q, item.exp].filter(Boolean).join("\n")).slice(0, 15000);
+  if (!source.trim()) { $("editor-message").textContent = `${i + 1}번 문제를 입력하거나 위에 주제·원고를 넣은 뒤 다시 만들어 주세요.`; return; }
+  const level = item.difficulty || "medium";
+  button.disabled = true;
+  button.classList.add("spinning");
+  $("editor-message").textContent = `${i + 1}번 문제를 '${LEVELS[level].label}' 난이도로 다시 만들고 있어요.`;
+  try {
+    const { questions: [made], legacy } = await requestQuestions(user, { source, type: item.type, count: 1, difficulty: level });
+    if (auth.currentUser?.uid !== user.uid || targetQuiz !== quiz || quiz.questions[i] !== item) throw new Error("편집 중인 문제가 바뀌어 적용하지 않았어요.");
+    Object.assign(item, { type: made.type, q: made.q, options: made.options, answer: made.answer, exp: made.exp, difficulty: legacy ? item.difficulty : made.difficulty });
+    if (!item.difficulty) delete item.difficulty;
+    renderQuestions();
+    $("editor-message").textContent = `${i + 1}번 문제를 새로 만들었어요. 정답과 해설을 확인해 주세요.` + (legacy ? LEGACY_NOTE : "");
+  } catch (error) {
+    $("editor-message").textContent = error.message || "연결에 실패했어요. 다시 시도해 주세요.";
+    button.disabled = false;
+    button.classList.remove("spinning");
+  }
+}
 $("editor-login").onclick = async () => {
   try { await login(); }
   catch (error) { console.error(error); $("auth-message").textContent = "로그인하지 못했어요. 팝업 허용과 Firebase 설정을 확인해 주세요."; }
