@@ -6,7 +6,7 @@ import qrcode from "https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrc
 import { renderRace } from "./race.js";
 import { participant, saveKeys } from "./session.js";
 import { buildReport } from "./reports.mjs";
-import { rankHtml, podium, updateClock } from "./game-effects.js";
+import { rankHtml, podium, updateClock } from "./game-effects.js?v=20261112-bgm";
 
 const $ = id => document.getElementById(id);
 const show = name => ["solo-preparing", "lobby", "question", "reveal", "end"].forEach(s => $(s).hidden = s !== name);

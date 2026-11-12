@@ -1,4 +1,5 @@
 import { rankPlayers } from "./game-math.mjs";
+import { startBgm, stopBgm } from "./bgm.js";
 
 const esc = value => String(value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 export const rankHtml = players => {
@@ -40,19 +41,36 @@ const enableAudio = () => {
   if (muted) return;
   audio ||= new (window.AudioContext || window.webkitAudioContext)();
   audio.resume();
+  syncBgm();
 };
+
+// 화면에 따라 배경음악 분위기를 바꿉니다. 문제 화면은 긴장감 있게, 대기·결과 화면은 잔잔하게.
+// 최종 결과(end)에서는 축하 효과음이 잘 들리도록 배경음악을 멈춥니다.
+const BGM_SCREENS = { lobby: "calm", wait: "calm", sent: "calm", result: "calm", reveal: "calm", question: "tense" };
+const currentMood = () => {
+  const visible = Object.keys(BGM_SCREENS).find(id => { const el = document.getElementById(id); return el && !el.hidden; });
+  return visible ? BGM_SCREENS[visible] : null;
+};
+function syncBgm() {
+  const mood = currentMood();
+  if (muted || !audio || !mood || document.hidden) stopBgm();
+  else startBgm(audio, mood);
+}
+new MutationObserver(syncBgm).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["hidden"] });
+document.addEventListener("visibilitychange", syncBgm);
 document.addEventListener("pointerdown", enableAudio, { once: true });
 document.addEventListener("keydown", enableAudio, { once: true });
 const button = document.createElement("button");
 button.type = "button";
 button.className = "sound-toggle";
-const sync = () => { button.textContent = muted ? "🔇" : "🔊"; button.setAttribute("aria-label", muted ? "축하 효과음 켜기" : "축하 효과음 끄기"); button.setAttribute("aria-pressed", String(!muted)); };
+const sync = () => { button.textContent = muted ? "🔇" : "🔊"; button.title = muted ? "배경음악·효과음 켜기" : "배경음악·효과음 끄기"; button.setAttribute("aria-label", button.title); button.setAttribute("aria-pressed", String(!muted)); };
 sync();
 document.querySelector(".game-top .top-right, .game-top")?.append(button);
 button.onclick = () => {
   muted = !muted;
   localStorage.setItem("quiz-play-muted", String(muted));
   enableAudio();
+  syncBgm();
   sync();
 };
 export function celebrate() {

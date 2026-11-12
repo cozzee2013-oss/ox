@@ -1,7 +1,7 @@
 import { at, set, get, onValue, serverTimestamp, now, calcPoints, esc } from "./db.js";
 import { renderRace } from "./race.js";
 import { participant, findSession, startPersonalQuestion } from "./session.js";
-import { podium, updateClock } from "./game-effects.js";
+import { podium, updateClock } from "./game-effects.js?v=20261112-bgm";
 const $ = id => document.getElementById(id);
 const show = name => ["solo-loading", "join", "wait", "question", "sent", "result", "end"].forEach(s => $(s).hidden = s !== name);
 let pin="",pid="",room="",lastKey="",timer=null,currentGame=null,stop=null,personalQ=0,busy=false;
