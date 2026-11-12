@@ -1,92 +1,134 @@
 // 게임 화면의 배경음악을 Web Audio로 직접 합성합니다.
 // 음원 파일이 없어 저작권 걱정이 없고 오프라인에서도 재생됩니다.
-// 대기·결과 화면은 잔잔하게, 문제 화면은 하이햇과 베이스를 더해 긴장감 있게 연주합니다.
+// 공부·집중용 로파이(lo-fi) 스타일: 느린 템포, 가사·멜로디 없이 따뜻한 재즈 화음과 일정한 비트.
+// 대기·결과 화면은 피아노 화음과 베이스만, 문제 화면은 부드러운 드럼을 더해 일정한 리듬으로 집중을 돕습니다.
 
-const BPM = 100;
-const STEP = 60 / BPM / 2; // 8분음표 길이(초)
-const LOOKAHEAD = 0.12;    // 미리 예약하는 시간(초)
-const VOLUME = 0.16;
+const BPM = 74;
+const STEP = 60 / BPM / 4; // 16분음표 길이(초)
+const SWING = 0.18;        // 엇박 16분음표를 살짝 늦춰 느긋한 느낌
+const LOOKAHEAD = 0.15;
+const VOLUME = 0.9;
 
-// 우주 테마에 맞춘 몽환적인 4마디 진행: Am9 – Fmaj7 – Cadd9 – G6
+// 로파이에서 흔한 편안한 진행: Fmaj9 – Em7 – Dm9 – Cmaj9 (각 1마디)
 const CHORDS = [
-  { bass: 45, pad: [57, 60, 64, 71], arp: [69, 72, 76, 79, 83, 79, 76, 72] },
-  { bass: 41, pad: [53, 57, 60, 64], arp: [65, 69, 72, 76, 81, 76, 72, 69] },
-  { bass: 48, pad: [55, 60, 62, 64], arp: [67, 72, 74, 76, 79, 76, 74, 72] },
-  { bass: 43, pad: [55, 59, 62, 64], arp: [67, 71, 74, 76, 79, 76, 74, 71] }
+  { root: 41, keys: [57, 60, 64, 67] }, // F  : A C E G
+  { root: 40, keys: [55, 59, 62, 64] }, // Em : G B D E
+  { root: 38, keys: [53, 57, 60, 64] }, // Dm : F A C E
+  { root: 36, keys: [55, 59, 62, 64] }  // C  : G B D E
 ];
+// 한 마디(16칸) 안에서 화음을 누르는 위치와 세기
+const COMP = { 0: 1, 6: 0.55, 10: 0.7 };
 const hz = midi => 440 * 2 ** ((midi - 69) / 12);
 
-let ctx, master, filter, noise, loop = null, step = 0, nextTime = 0, mode = "calm";
+let ctx, out, warm, noise, loop = null, step = 0, nextTime = 0, mode = "calm";
 
 function setup(audio) {
   if (ctx === audio) return;
   ctx = audio;
-  master = ctx.createGain();
-  master.gain.value = 0;
-  filter = ctx.createBiquadFilter();
-  filter.type = "lowpass";
-  filter.frequency.value = 2400;
-  filter.connect(master).connect(ctx.destination);
-  noise = ctx.createBuffer(1, ctx.sampleRate * 0.2, ctx.sampleRate);
+  // 악기 → 따뜻한 저역통과 필터 → 컴프레서 → 마스터 음량
+  warm = ctx.createBiquadFilter();
+  warm.type = "lowpass";
+  warm.frequency.value = 2600;
+  warm.Q.value = 0.5;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -20;
+  comp.knee.value = 12;
+  comp.ratio.value = 3;
+  comp.attack.value = 0.01;
+  comp.release.value = 0.25;
+  out = ctx.createGain();
+  out.gain.value = 0;
+  warm.connect(comp).connect(out).connect(ctx.destination);
+  noise = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate);
   const data = noise.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
 }
 
-function tone(freq, start, length, { type = "triangle", gain = 0.1, attack = 0.01, detune = 0 } = {}) {
-  const osc = ctx.createOscillator(), env = ctx.createGain();
-  osc.type = type;
-  osc.frequency.value = freq;
-  osc.detune.value = detune;
-  env.gain.setValueAtTime(0.0001, start);
-  env.gain.linearRampToValueAtTime(gain, start + attack);
-  env.gain.exponentialRampToValueAtTime(0.0001, start + length);
-  osc.connect(env).connect(filter);
-  osc.start(start);
-  osc.stop(start + length + 0.05);
+const env = (start, peak, attack, decay) => {
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, start);
+  g.gain.linearRampToValueAtTime(peak, start + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, start + attack + decay);
+  return g;
+};
+
+// 일렉트릭 피아노: 사인파 본음 + 짧게 울리는 고음 배음으로 부드러운 종소리 느낌
+function epiano(freq, start, gain) {
+  const body = ctx.createOscillator(), bell = ctx.createOscillator();
+  body.type = "sine"; body.frequency.value = freq;
+  bell.type = "sine"; bell.frequency.value = freq * 4.01;
+  const g1 = env(start, gain, 0.008, 2.4), g2 = env(start, gain * 0.18, 0.004, 0.35);
+  body.connect(g1).connect(warm);
+  bell.connect(g2).connect(warm);
+  body.start(start); bell.start(start);
+  body.stop(start + 2.5); bell.stop(start + 0.4);
 }
 
-function hat(start, gain) {
-  const src = ctx.createBufferSource(), hp = ctx.createBiquadFilter(), env = ctx.createGain();
+function bass(freq, start, length, gain) {
+  const osc = ctx.createOscillator(), sub = ctx.createOscillator();
+  osc.type = "triangle"; osc.frequency.value = freq;
+  sub.type = "sine"; sub.frequency.value = freq / 2;
+  const g = env(start, gain, 0.02, length);
+  osc.connect(g); sub.connect(g); g.connect(warm);
+  osc.start(start); sub.start(start);
+  osc.stop(start + length + 0.05); sub.stop(start + length + 0.05);
+}
+
+function kick(start, gain) {
+  const osc = ctx.createOscillator();
+  osc.frequency.setValueAtTime(110, start);
+  osc.frequency.exponentialRampToValueAtTime(42, start + 0.12);
+  const g = env(start, gain, 0.003, 0.3);
+  osc.connect(g).connect(warm);
+  osc.start(start); osc.stop(start + 0.35);
+}
+
+function noiseHit(start, gain, type, freq, decay) {
+  const src = ctx.createBufferSource(), f = ctx.createBiquadFilter();
   src.buffer = noise;
-  hp.type = "highpass";
-  hp.frequency.value = 7000;
-  env.gain.setValueAtTime(gain, start);
-  env.gain.exponentialRampToValueAtTime(0.0001, start + 0.05);
-  src.connect(hp).connect(env).connect(filter);
-  src.start(start);
-  src.stop(start + 0.06);
+  f.type = type; f.frequency.value = freq; f.Q.value = 0.8;
+  const g = env(start, gain, 0.002, decay);
+  src.connect(f).connect(g).connect(warm);
+  src.start(start); src.stop(start + decay + 0.05);
 }
 
 function playStep(i, t) {
-  const bar = Math.floor(i / 8) % CHORDS.length, beat = i % 8, chord = CHORDS[bar];
-  const tense = mode === "tense";
-  if (beat === 0) chord.pad.forEach(note => {
-    tone(hz(note), t, STEP * 8.4, { type: "sawtooth", gain: 0.012, attack: 0.6, detune: -7 });
-    tone(hz(note), t, STEP * 8.4, { type: "sawtooth", gain: 0.012, attack: 0.6, detune: 7 });
-  });
-  if (beat === 0 || beat === 4 || (tense && beat % 2 === 0)) tone(hz(chord.bass), t, STEP * (tense ? 1.8 : 3.6), { type: "sine", gain: tense ? 0.16 : 0.13 });
-  if (tense || beat % 2 === 0) tone(hz(chord.arp[beat]), t, STEP * 1.6, { gain: tense ? 0.05 : 0.04 });
-  if (tense) hat(t, beat % 2 ? 0.035 : 0.02);
+  const pos = i % 16, chord = CHORDS[Math.floor(i / 16) % CHORDS.length];
+  const focus = mode === "focus";
+  // 화음
+  if (COMP[pos]) {
+    const strength = COMP[pos] * (focus ? 0.11 : 0.13);
+    chord.keys.forEach((note, n) => epiano(hz(note), t + n * 0.012, strength)); // 살짝 굴려 치기
+  }
+  // 베이스: 1박과 3박 앞
+  if (pos === 0) bass(hz(chord.root), t, 1.3, 0.32);
+  if (pos === 10) bass(hz(chord.root + 7), t, 0.6, 0.22);
+  if (!focus) return;
+  // 드럼: 문제 화면에서만, 크지 않게
+  if (pos === 0 || pos === 7 || pos === 10) kick(t, pos === 0 ? 0.55 : 0.4);
+  if (pos === 4 || pos === 12) noiseHit(t, 0.16, "bandpass", 1800, 0.16);
+  if (pos % 2 === 0) noiseHit(t, pos % 4 ? 0.035 : 0.055, "highpass", 8000, 0.04);
 }
 
 function schedule() {
   while (nextTime < ctx.currentTime + LOOKAHEAD) {
-    playStep(step++, nextTime);
+    const swing = step % 2 ? STEP * SWING : 0;
+    playStep(step, nextTime + swing);
+    step++;
     nextTime += STEP;
   }
 }
 
-/** 배경음악을 시작하거나 분위기만 바꿉니다. mood: "calm" | "tense" */
+/** 배경음악을 시작하거나 분위기만 바꿉니다. mood: "calm" | "focus" */
 export function startBgm(audio, mood = "calm") {
   if (!audio) return;
   setup(audio);
   mode = mood;
-  filter.frequency.setTargetAtTime(mood === "tense" ? 3400 : 2000, ctx.currentTime, 0.4);
   if (loop) return;
   step = 0;
   nextTime = ctx.currentTime + 0.05;
-  master.gain.cancelScheduledValues(ctx.currentTime);
-  master.gain.setTargetAtTime(VOLUME, ctx.currentTime, 0.6);
+  out.gain.cancelScheduledValues(ctx.currentTime);
+  out.gain.setTargetAtTime(VOLUME, ctx.currentTime, 0.5);
   loop = setInterval(schedule, 25);
   schedule();
 }
@@ -96,6 +138,6 @@ export function stopBgm() {
   if (!loop) return;
   clearInterval(loop);
   loop = null;
-  master.gain.cancelScheduledValues(ctx.currentTime);
-  master.gain.setTargetAtTime(0, ctx.currentTime, 0.25);
+  out.gain.cancelScheduledValues(ctx.currentTime);
+  out.gain.setTargetAtTime(0, ctx.currentTime, 0.25);
 }

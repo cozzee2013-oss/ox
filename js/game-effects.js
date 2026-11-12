@@ -44,9 +44,9 @@ const enableAudio = () => {
   syncBgm();
 };
 
-// 화면에 따라 배경음악 분위기를 바꿉니다. 문제 화면은 긴장감 있게, 대기·결과 화면은 잔잔하게.
+// 화면에 따라 배경음악 분위기를 바꿉니다. 문제 화면은 잔잔한 비트로 집중을, 대기·결과 화면은 화음만 잔잔하게.
 // 최종 결과(end)에서는 축하 효과음이 잘 들리도록 배경음악을 멈춥니다.
-const BGM_SCREENS = { lobby: "calm", wait: "calm", sent: "calm", result: "calm", reveal: "calm", question: "tense" };
+const BGM_SCREENS = { lobby: "calm", wait: "calm", sent: "calm", result: "calm", reveal: "calm", question: "focus" };
 const currentMood = () => {
   const visible = Object.keys(BGM_SCREENS).find(id => { const el = document.getElementById(id); return el && !el.hidden; });
   return visible ? BGM_SCREENS[visible] : null;
