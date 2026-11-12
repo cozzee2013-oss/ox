@@ -18,7 +18,7 @@ test("입력이 유효할 때만 사용량을 예약한다", async () => {
   let reservations = 0;
   const run = handler({ reserve: async () => { reservations++; return { allowed: true }; } });
   assert.equal((await run(request({ ...valid, source: "" }))).status, 400);
-  assert.equal((await run(request({ ...valid, count: 21 }))).status, 400);
+  assert.equal((await run(request({ ...valid, count: 51 }))).status, 400);
   assert.equal(reservations, 0);
   const result = await run(request({ ...valid, source: "성경인물" }));
   assert.equal(result.status, 200);
@@ -90,7 +90,7 @@ test("지시문에는 요청한 난이도의 기준만 넣는다", () => {
 
 test("난이도를 검사하고 문항마다 저장한다", async () => {
   let received;
-  const run = handler({ generate: async (_s, count, _t, plan) => { received = plan; return plan.map(level => ({ ...question, difficulty: level })); } });
+  const run = handler({ generate: async (_s, count, _t, plan) => { received = plan; return plan.map((level, i) => ({ ...question, q: `문제 ${i}`, difficulty: level })); } });
   assert.equal((await run(request({ ...valid, difficulty: "extreme" }))).status, 400);
   const plain = await (await run(request(valid))).json();
   assert.equal(plain.questions[0].difficulty, "medium");
@@ -142,4 +142,43 @@ test("15,000자를 넘는 원고도 받고, 긴 원고는 전체를 정리한 �
   assert.equal(condensedFlag, true);
   assert.match(material, /구간1 핵심[\s\S]*구간4 핵심/);
   assert.equal((await run(request({ ...valid, source: "다".repeat(MAX_SOURCE + 1) }))).status, 413);
+});
+
+import { batchPlan, partitionSource } from "../supabase/functions/quiz-ai/core.mjs";
+
+test("20문제가 넘으면 하·중·상이 고르게 섞인 묶음으로 나눈다", () => {
+  const batches = batchPlan(difficultyPlan(50, "standard"));
+  assert.equal(batches.length, 3);
+  assert.deepEqual(batches.map(b => b.length), [17, 17, 16]);
+  assert.ok(batches.every(b => b.includes("easy") && b.includes("medium") && b.includes("hard")));
+  assert.equal(batchPlan(difficultyPlan(20)).length, 1);
+});
+
+test("긴 원고는 묶음마다 앞뒤 부분을 나눠 주고, 짧은 주제는 함께 쓴다", () => {
+  const text = Array.from({ length: 30 }, (_, i) => `문단${i} ` + "다".repeat(300)).join("\n");
+  const { parts, shared } = partitionSource(text, 3);
+  assert.equal(shared, false);
+  assert.equal(parts.length, 3);
+  assert.equal(parts.join("\n"), text);
+  assert.ok(parts[0].startsWith("문단0") && parts[2].includes("문단29"));
+  assert.deepEqual(partitionSource("성경인물 퀴즈", 3), { parts: ["성경인물 퀴즈", "성경인물 퀴즈", "성경인물 퀴즈"], shared: true });
+});
+
+test("50문제까지 묶음으로 만들어 합치고, 겹치는 문제는 하나만 남긴다", async () => {
+  const calls = [];
+  const run = handler({ generate: async (src, count, type, plan, condensed, batch) => {
+    calls.push({ count, batch });
+    return plan.map((level, i) => ({ ...question, q: `묶음${batch.index} 문제${i} ${level}`, difficulty: level }));
+  } });
+  const result = await run(request({ ...valid, count: 50, difficulty: "advanced" }));
+  assert.equal(result.status, 200);
+  const { questions } = await result.json();
+  assert.equal(questions.length, 50);
+  assert.equal(calls.length, 3);
+  assert.ok(calls.every(c => c.count <= 20 && c.batch.total === 3));
+  const order = { easy: 0, medium: 1, hard: 2 };
+  assert.ok(questions.every((q, i) => !i || order[questions[i - 1].difficulty] <= order[q.difficulty]));
+  assert.equal((await run(request({ ...valid, count: 51 }))).status, 400);
+  const dup = handler({ generate: async (src, count, type, plan) => plan.map(level => ({ ...question, difficulty: level })) });
+  assert.equal((await (await dup(request({ ...valid, count: 25 }))).json()).questions.length, 1);
 });

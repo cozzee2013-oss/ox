@@ -49,6 +49,33 @@ ${part}
 </구간>`;
 }
 
+// ── 문제 수 ───────────────────────────────────────────
+// AI가 한 번에 쓸 수 있는 분량에 한계가 있어 20문제가 넘으면 여러 묶음으로 나눠 동시에 만듭니다.
+export const MAX_COUNT = 50;
+export const BATCH_SIZE = 20;
+
+/** 난이도 배분 계획을 묶음별로 고르게 나눕니다. 각 묶음이 하·중·상을 골고루 갖도록 번갈아 배정합니다. */
+export function batchPlan(plan, size = BATCH_SIZE) {
+  const total = Math.ceil(plan.length / size);
+  return Array.from({ length: total }, (_, i) => plan.filter((_, j) => j % total === i));
+}
+
+/** 묶음마다 출제할 자료를 나눕니다. 원고가 충분히 길면 문단 단위로 앞뒤를 나누고, 짧은 주제면 모두 같은 자료를 씁니다. */
+export function partitionSource(text, total) {
+  if (total <= 1) return { parts: [text], shared: false };
+  const paragraphs = text.split(/\n+/).map(line => line.trim()).filter(Boolean);
+  if (paragraphs.length < total || text.length < 1500 * total) return { parts: Array(total).fill(text), shared: true };
+  const target = text.length / total, parts = [];
+  let current = [], size = 0;
+  paragraphs.forEach((line, i) => {
+    current.push(line); size += line.length;
+    const left = paragraphs.length - i - 1, slots = total - parts.length - 1;
+    if (slots > 0 && (size >= target || left === slots)) { parts.push(current.join("\n")); current = []; size = 0; }
+  });
+  if (current.length) parts.push(current.join("\n"));
+  return { parts, shared: false };
+}
+
 // ── 난이도 ─────────────────────────────────────────────
 // 문제 길이나 전문용어의 양이 아니라, 정답을 판단하는 데 필요한 사고 수준으로 난이도를 구분합니다.
 export const LEVELS = ["easy", "medium", "hard"];
@@ -96,7 +123,7 @@ const LEVEL_RULES = {
 };
 
 /** AI에게 보낼 문제 생성 지시문을 만듭니다. */
-export function buildPrompt(source, count, type, plan = difficultyPlan(count), condensed = false) {
+export function buildPrompt(source, count, type, plan = difficultyPlan(count), condensed = false, batch = null) {
   const used = LEVELS.filter(level => plan.includes(level));
   const counts = used.map(level => `${LEVEL_NAMES[level]} ${plan.filter(x => x === level).length}개`).join(", ");
   return `아래 입력으로 한국어 학습 퀴즈 ${count}개를 만드세요. 대상은 대학 학부생입니다. 입력이 설명문이나 자료 원고라면 그 원고에 나온 중요한 내용을 골라 서로 다른 문제 ${count}개를 만드세요. 원고에 없는 사실을 추가하지 마세요. 입력이 짧은 퀴즈 주제나 문제 생성 요청이라면 해당 주제의 널리 알려진 검증 가능한 사실을 바탕으로 문제를 만드세요. 사실이 불확실한 내용은 제외하세요. 유형: ${type === "mixed" ? "O/X와 객관식을 적절히 섞기" : type === "ox" ? "O/X만" : "4지선다 객관식만"}.
@@ -106,7 +133,9 @@ export function buildPrompt(source, count, type, plan = difficultyPlan(count), c
 
 ${used.map(level => LEVEL_RULES[level]).join("\n\n")}${condensed ? `
 
-[긴 자료] 아래 원고는 긴 자료를 구간별로 정리한 학습 노트입니다. 문제를 특정 구간에 몰지 말고 모든 구간에 고르게 나누어 출제하세요(문제 수가 구간 수보다 적으면 서로 다른 구간에서 고르세요).` : ""}
+[긴 자료] 아래 원고는 긴 자료를 구간별로 정리한 학습 노트입니다. 문제를 특정 구간에 몰지 말고 모든 구간에 고르게 나누어 출제하세요(문제 수가 구간 수보다 적으면 서로 다른 구간에서 고르세요).` : ""}${batch && batch.total > 1 ? (batch.shared
+  ? `\n\n[나누어 출제] 같은 주제의 문제를 ${batch.total}개 묶음으로 나눠 따로 만들고 있으며 이것은 ${batch.index}번째 묶음입니다. 다른 묶음과 문제가 겹치지 않도록, 주제를 ${batch.total}개의 하위 영역으로 나눈다고 할 때 ${batch.index}번째 영역을 중심으로 출제하세요.`
+  : `\n\n[나누어 출제] 긴 자료를 ${batch.total}개 부분으로 나눠 따로 출제하고 있으며 아래는 그중 ${batch.index}번째 부분입니다. 이 부분의 내용으로만 출제하세요.`) : ""}
 
 [공통 출제 원칙]
 - 모든 문제는 학문적으로 정확하고 명확해야 한다. 난이도가 높아지더라도 정답은 논리적으로 명확해야 한다.
@@ -183,7 +212,7 @@ export function createHandler({ verify, reserve, generate, summarize }) {
       const source = typeof body.source === "string" ? body.source.trim() : "";
       if (!source) return reply({ error: "원고나 퀴즈 주제를 입력해 주세요." }, 400);
       if (source.length > MAX_SOURCE) return reply({ error: `원고가 너무 깁니다. (최대 ${MAX_SOURCE.toLocaleString("ko-KR")}자)` }, 413);
-      if (!Number.isInteger(body.count) || body.count < 1 || body.count > 20 || !["ox", "choice", "mixed"].includes(body.type)) return reply({ error: "문제 수와 유형을 확인해 주세요." }, 400);
+      if (!Number.isInteger(body.count) || body.count < 1 || body.count > MAX_COUNT || !["ox", "choice", "mixed"].includes(body.type)) return reply({ error: "문제 수와 유형을 확인해 주세요." }, 400);
       const difficulty = body.difficulty ?? "medium";
       if (!DIFFICULTIES.includes(difficulty)) return reply({ error: "난이도를 확인해 주세요." }, 400);
       const plan = difficultyPlan(body.count, difficulty);
@@ -191,17 +220,28 @@ export function createHandler({ verify, reserve, generate, summarize }) {
       if (!quota.allowed) return reply({ error: quota.reason === "interval" ? "10초 뒤 다시 시도해 주세요." : "오늘 퀴즈 AI 생성 한도에 도달했어요." }, 429);
       const condensed = source.length > SINGLE_LIMIT;
       const material = condensed ? await condenseSource(source, summarize) : source;
-      const items = await generate(material, body.count, body.type, plan, condensed);
-      if (!Array.isArray(items) || items.length !== body.count) throw new Error("invalid");
-      const questions = items.map((item, index) => {
-        if (!item || !["ox", "choice"].includes(item.type) || (body.type !== "mixed" && item.type !== body.type) || typeof item.q !== "string" || !item.q.trim() || item.q.length > 250 || typeof item.exp !== "string" || !item.exp.trim() || item.exp.length > 300 || !Array.isArray(item.options) || item.options.some(option => typeof option !== "string" || !option.trim() || option.length > 100)) throw new Error("invalid");
-        const options = item.options.map(option => option.trim());
-        if (item.type === "ox" ? options.length !== 2 || options[0] !== "O" || options[1] !== "X" : options.length !== 4 || new Set(options).size !== 4) throw new Error("invalid");
-        if (!Number.isInteger(item.answer) || item.answer < 0 || item.answer >= options.length) throw new Error("invalid");
-        // AI가 붙인 난이도가 요청 범위 안이면 따르고, 아니면 배분 계획을 따릅니다.
-        const level = plan.includes(item.difficulty) ? item.difficulty : plan[index];
-        return { type: item.type, q: item.q.trim(), options, answer: item.answer, exp: item.exp.trim(), time: 20, difficulty: level };
-      });
+      const batches = batchPlan(plan);
+      const { parts, shared } = partitionSource(material, batches.length);
+      const results = await Promise.all(batches.map((sub, i) =>
+        generate(parts[i], sub.length, body.type, sub, condensed, { index: i + 1, total: batches.length, shared })));
+      const order = { easy: 0, medium: 1, hard: 2 }, seen = new Set();
+      const questions = results.flatMap((items, b) => {
+        const sub = batches[b];
+        if (!Array.isArray(items) || items.length !== sub.length) throw new Error("invalid");
+        return items.map((item, index) => {
+          if (!item || !["ox", "choice"].includes(item.type) || (body.type !== "mixed" && item.type !== body.type) || typeof item.q !== "string" || !item.q.trim() || item.q.length > 250 || typeof item.exp !== "string" || !item.exp.trim() || item.exp.length > 300 || !Array.isArray(item.options) || item.options.some(option => typeof option !== "string" || !option.trim() || option.length > 100)) throw new Error("invalid");
+          const options = item.options.map(option => option.trim());
+          if (item.type === "ox" ? options.length !== 2 || options[0] !== "O" || options[1] !== "X" : options.length !== 4 || new Set(options).size !== 4) throw new Error("invalid");
+          if (!Number.isInteger(item.answer) || item.answer < 0 || item.answer >= options.length) throw new Error("invalid");
+          // AI가 붙인 난이도가 요청 범위 안이면 따르고, 아니면 배분 계획을 따릅니다.
+          const level = sub.includes(item.difficulty) ? item.difficulty : sub[index];
+          return { type: item.type, q: item.q.trim(), options, answer: item.answer, exp: item.exp.trim(), time: 20, difficulty: level };
+        });
+      })
+        // 묶음 사이에 같은 문제가 나오면 하나만 남깁니다.
+        .filter(item => { const key = item.q.replace(/\s+/g, ""); if (seen.has(key)) return false; seen.add(key); return true; })
+        // 쉬운 문제부터 순서대로
+        .sort((a, b) => order[a.difficulty] - order[b.difficulty]);
       return reply({ questions: distributeChoiceAnswers(questions), ...(condensed ? { sections: splitSource(source).length } : {}) });
     } catch {
       return reply({ error: "문제를 만들지 못했어요. 잠시 후 다시 시도해 주세요." }, 502);

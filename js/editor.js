@@ -206,7 +206,9 @@ $("ai-generate").onclick = async () => {
   $("ai-generate").disabled = true;
   $("ai-message").textContent = source.length > SINGLE_LIMIT
     ? `긴 원고(${source.length.toLocaleString()}자)를 ${sectionCount(source.length)}개 구간으로 나눠 정리하고 있어요. 1~2분 정도 걸릴 수 있어요.`
-    : "원고를 읽고 문제를 만들고 있어요.";
+    : Number($("ai-count").value) > 20
+      ? `${$("ai-count").value}문제를 여러 묶음으로 나눠 만들고 있어요. 1분 정도 걸릴 수 있어요.`
+      : "원고를 읽고 문제를 만들고 있어요.";
   try {
     const difficulty = aiLevel === "mix" ? $("ai-mix").value : aiLevel;
     const { questions, legacy } = await requestQuestions(user, { source, type: $("ai-type").value, count: Number($("ai-count").value), difficulty });

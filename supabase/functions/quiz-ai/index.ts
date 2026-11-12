@@ -46,11 +46,11 @@ async function summarize(part: string, index: number, total: number) {
   if (result.status !== "completed" && result.incomplete_details?.reason !== "max_output_tokens") throw new Error("incomplete notes");
   return outputText(result);
 }
-async function generate(source: string, count: number, type: string, plan: string[], condensed = false) {
+async function generate(source: string, count: number, type: string, plan: string[], condensed = false, batch: { index: number; total: number; shared: boolean } | null = null) {
   const key = apiKey();
   const item = { type: "object", additionalProperties: false, properties: { type: { type: "string", enum: ["ox", "choice"] }, q: { type: "string" }, options: { type: "array", items: { type: "string" } }, answer: { type: "integer" }, exp: { type: "string" }, difficulty: { type: "string", enum: ["easy", "medium", "hard"] } }, required: ["type", "q", "options", "answer", "exp", "difficulty"] };
   const schema = { type: "object", additionalProperties: false, properties: { questions: { type: "array", items: item } }, required: ["questions"] };
-  const prompt = buildPrompt(source, count, type, plan, condensed);
+  const prompt = buildPrompt(source, count, type, plan, condensed, batch);
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
